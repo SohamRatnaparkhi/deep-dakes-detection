@@ -1,0 +1,11 @@
+datasets/data/manipulated_sequences
+datasets/data/original_sequences
+datasets/data/output_face
+datasets/data/sample_dataset
+datasets/zip/archive.zip
+datasets/zip/deepfake-detection-challenge.zip
+datasets/zip/dfdc_train_part_00.zip
+datasets/zip/ff.zip
+.venv
+.vscode
+models/haar_cascade
