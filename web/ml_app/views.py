@@ -11,11 +11,8 @@ import matplotlib.pyplot as plt
 import face_recognition
 from torch.autograd import Variable
 import time
-import sys
 from torch import nn
-import json
 import glob
-import copy
 from torchvision import models
 import shutil
 from PIL import Image as pImage
@@ -40,7 +37,26 @@ train_transforms = transforms.Compose([
 
 class Model(nn.Module):
 
+    """Initialize model modules.
+    Args:
+        num_classes (int): number of classes
+        latent_dim (int): number of latent dimension
+        lstm_layers (int): number of lstm layers
+        hidden_dim (int): number of hidden dimension
+        bidirectional (bool): whether to use bidirectional LSTM
+    """
+
     def __init__(self, num_classes,latent_dim= 2048, lstm_layers=1 , hidden_dim = 2048, bidirectional = False):
+        """
+        Set model as resnext50 and remove the last 2 layers. Add LSTM and fully connected layers.
+
+        Args:
+            num_classes int: number of classes which in our case is 2 (Real of Fake) 
+            latent_dim (int, optional): number of expected features in the input. Defaults to 2048.
+            lstm_layers (int, optional): Number of recurrent layers. Defaults to 1.
+            hidden_dim (int, optional): number of features in the hidden state. Defaults to 2048.
+            bidirectional (bool, optional): if True, the LSTM layers will be bidirectional; if False, they will be unidirectional. Defaults to False.
+        """
         super(Model, self).__init__()
         model = models.resnext50_32x4d(pretrained = True)
         self.model = nn.Sequential(*list(model.children())[:-2])
@@ -50,7 +66,11 @@ class Model(nn.Module):
         self.linear1 = nn.Linear(2048,num_classes)
         self.avgpool = nn.AdaptiveAvgPool2d(1)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Forward pass of the model.
+        Involves feature extraction with a modified ResNeXt model, followed by adaptive average pooling, reshaping, LSTM processing, and final classification. Returns:  feature maps and the model's classification prediction.
+        """
         batch_size,seq_length, c, h, w = x.shape
         x = x.view(batch_size * seq_length, c, h, w)
         fmap = self.model(x)
@@ -58,9 +78,7 @@ class Model(nn.Module):
         x = x.view(batch_size,seq_length,2048)
         x_lstm,_ = self.lstm(x,None)
         return fmap,self.dp(self.linear1(x_lstm[:,-1,:]))
-
-
-class validation_dataset(Dataset):
+class ValidationDataset(Dataset):
     def __init__(self,video_names,sequence_length=60,transform = None):
         self.video_names = video_names
         self.transform = transform
@@ -69,42 +87,36 @@ class validation_dataset(Dataset):
     def __len__(self):
         return len(self.video_names)
 
-    def __getitem__(self,idx):
+    def __getitem__(self,idx) -> torch.Tensor:
+        """Crops the face from the each frame in video and returns the frames.
+
+        Returns:
+            tensor: stacked frames of crop
+        """
         video_path = self.video_names[idx]
         frames = []
-        a = int(100/self.count)
-        first_frame = np.random.randint(0,a)
-        for i,frame in enumerate(self.frame_extract(video_path)):
-            #if(i % a == first_frame):
+        for _,frame in enumerate(self.frame_extract(video_path)):
             faces = face_recognition.face_locations(frame)
             try:
-              top,right,bottom,left = faces[0]
-              frame = frame[top:bottom,left:right,:]
+                top,right,bottom,left = faces[0]
+                frame = frame[top:bottom,left:right,:]
             except:
-              pass
+                pass
             frames.append(self.transform(frame))
             if(len(frames) == self.count):
                 break
-        """
-        for i,frame in enumerate(self.frame_extract(video_path)):
-            if(i % a == first_frame):
-                frames.append(self.transform(frame))
-        """        
-        # if(len(frames)<self.count):
-        #   for i in range(self.count-len(frames)):
-        #         frames.append(self.transform(frame))
-        #print("no of frames", self.count)
         frames = torch.stack(frames)
         frames = frames[:self.count]
         return frames.unsqueeze(0)
     
     def frame_extract(self,path):
-      vidObj = cv2.VideoCapture(path) 
-      success = 1
-      while success:
-          success, image = vidObj.read()
-          if success:
-              yield image
+        vidObj = cv2.VideoCapture(path) 
+        success = 1
+        while success:
+            success, image = vidObj.read()
+            if success:
+                yield image
+
 
 def im_convert(tensor, video_file_name):
     """ Display a tensor as an image. """
@@ -160,12 +172,13 @@ def plot_heat_map(i, model, img, path = './', video_file_name=''):
   # Saving heatmap - Start
   heatmap_name = video_file_name+"_heatmap_"+str(i)+".png"
   image_name = os.path.join(settings.PROJECT_DIR, 'uploaded_images', heatmap_name)
+  image_name_only = heatmap_name
   cv2.imwrite(image_name,result)
   # Saving heatmap - End
   result1 = heatmap * 0.5/255 + img*0.8
   r,g,b = cv2.split(result1)
   result1 = cv2.merge((r,g,b))
-  return image_name
+  return heatmap_name
 
 # Model Selection
 def get_accurate_model(sequence_length):
@@ -174,7 +187,7 @@ def get_accurate_model(sequence_length):
     final_model = ""
     list_models = glob.glob(os.path.join(settings.PROJECT_DIR, "models", "*.pt"))
     for i in list_models:
-        model_name.append(i.split("\\")[-1])
+        model_name.append(i.split("/")[-1])
     for i in model_name:
         try:
             seq = i.split("_")[3]
@@ -197,7 +210,6 @@ def get_accurate_model(sequence_length):
 ALLOWED_VIDEO_EXTENSIONS = set(['mp4','gif','webm','avi','3gp','wmv','flv','mkv'])
 
 def allowed_video_file(filename):
-    #print("filename" ,filename.rsplit('.',1)[1].lower())
     if (filename.rsplit('.',1)[1].lower() in ALLOWED_VIDEO_EXTENSIONS):
         return True
     else: 
@@ -264,7 +276,7 @@ def predict_page(request):
             production_video_name = '/'.join([str(elem) for elem in production_video_name])
             print("Production file name",production_video_name)
         video_file_name_only = video_file_name.split('.')[0]
-        video_dataset = validation_dataset(path_to_videos, sequence_length=sequence_length,transform= train_transforms)
+        video_dataset = ValidationDataset(path_to_videos, sequence_length=sequence_length,transform= train_transforms)
         model = Model(2).cuda()
         model_name = os.path.join(settings.PROJECT_DIR,'models', get_accurate_model(sequence_length))
         models_location = os.path.join(settings.PROJECT_DIR,'models')
@@ -347,9 +359,9 @@ def predict_page(request):
                 prediction = predict(model, video_dataset[i], './', video_file_name_only)
                 confidence = round(prediction[1], 1)
                 print("<=== |  Predicition Done | ===>")
-                # print("<=== | Heat map creation started | ===>")
-                # for j in range(0, sequence_length):
-                #     heatmap_images.append(plot_heat_map(j, model, video_dataset[i], './', video_file_name_only))
+                print("<=== | Heat map creation started | ===>")
+                for j in range(0, sequence_length):
+                    heatmap_images.append(plot_heat_map(j, model, video_dataset[i], './', video_file_name_only))
                 if prediction[0] == 1:
                     output = "REAL"
                 else:
