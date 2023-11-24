@@ -9,3 +9,8 @@ datasets/zip/ff.zip
 .venv
 .vscode
 models/haar_cascade
+models/deep_fakes
+web/deep-fake-detection/web/uploaded_videos
+web/static/json/
+web/ml_app/__pycache__
+web/project_settings/__pycache__
